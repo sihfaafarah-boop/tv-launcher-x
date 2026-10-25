@@ -51,6 +51,7 @@ import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
+import java.util.Calendar;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
@@ -172,6 +173,15 @@ public class HomeActivity extends Activity {
     }
     private ImageView nowButton;
     private GradientDrawable nowShape;
+
+    // Jadwal sholat: tampil di tempat card Now Playing saat tidak ada yang diputar.
+    private View prayerCard;
+    private GradientDrawable prayerShape;
+    private TextView prayerLabel;
+    private TextView prayerName;
+    private TextView prayerWhen;
+    private TextView prayerList;
+    private View prayerDivider;
     private GradientDrawable nowButtonShape;
     // The callbacks hand over the session's metadata and state; they are kept rather than fetched again from the
     // controller, which would re-parcel the whole bundle (album art included) several times a second.
@@ -245,14 +255,15 @@ public class HomeActivity extends Activity {
     private final Runnable tick = new Runnable() {
         @Override public void run() {
             Date now = new Date();
-            String time = new SimpleDateFormat("h:mm", Locale.getDefault()).format(now);
+            String time = new SimpleDateFormat("HH:mm", new Locale("id", "ID")).format(now);
             if (clock.getText().length() == 0) {
                 clock.setText(time);
                 clock.setTypeface(clockFont(clockWeight()));
             } else if (!time.contentEquals(clock.getText())) {
                 changeClock(time);
             }
-            date.setText(new SimpleDateFormat("EEEE, MMMM d", Locale.getDefault()).format(now));
+            date.setText(new SimpleDateFormat("EEEE, d MMMM", new Locale("id", "ID")).format(now));
+            updatePrayerCard();
             handler.postDelayed(this, 15_000);
         }
     };
@@ -359,6 +370,10 @@ public class HomeActivity extends Activity {
         FrameLayout.LayoutParams nowLp = new FrameLayout.LayoutParams(dp(380), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.END | Gravity.TOP);
         nowLp.setMargins(0, dp(140), dp(SIDE), 0);
         root.addView(nowCard, nowLp);
+        prayerCard = buildPrayerCard();
+        FrameLayout.LayoutParams prayerLp = new FrameLayout.LayoutParams(dp(380), ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.END | Gravity.TOP);
+        prayerLp.setMargins(0, dp(140), dp(SIDE), 0);
+        root.addView(prayerCard, prayerLp);
 
         column.addView(buildTopBar(), new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
@@ -374,7 +389,7 @@ public class HomeActivity extends Activity {
         LinearLayout appsColumn = new LinearLayout(this);
         appsColumn.setOrientation(LinearLayout.VERTICAL);
         appsColumn.setClipChildren(false);
-        TextView appsTitle = text("All apps", 34, palette.onSurface, 760);
+        TextView appsTitle = text("Semua aplikasi", 34, palette.onSurface, 760);
         appsTitle.setPadding(dp(4), dp(28), 0, dp(8));
         appsColumn.addView(appsTitle);
         appsGrid = new GridLayout(this);
@@ -406,7 +421,7 @@ public class HomeActivity extends Activity {
         bar.addView(when, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.START | Gravity.TOP));
 
         nav = new ButtonGroup(this, font(600), palette,
-                new String[]{"Home", "Apps", "Settings"},
+                new String[]{"Beranda", "Aplikasi", "Pengaturan"},
                 new int[]{R.drawable.ic_home, R.drawable.ic_apps, R.drawable.ic_settings},
                 new boolean[]{true, true, false},
                 index -> {
@@ -1019,6 +1034,7 @@ public class HomeActivity extends Activity {
         homePage.setVisibility(View.VISIBLE);
         nav.select(0);
         if (nowCard != null) showNowPlaying();
+        updatePrayerCard();
         if (dock.getChildCount() > 0) dock.getChildAt(0).requestFocus();
     }
 
@@ -1030,13 +1046,116 @@ public class HomeActivity extends Activity {
         appsPage.scrollTo(0, 0);
         nav.select(1);
         if (nowCard != null) nowCard.setVisibility(View.GONE);
+        updatePrayerCard();
         if (appsGrid.getChildCount() > 0) appsGrid.getChildAt(0).requestFocus();
+    }
+
+    // ---- Jadwal sholat ----
+
+    private View buildPrayerCard() {
+        LinearLayout card = new LinearLayout(this);
+        card.setGravity(Gravity.CENTER_VERTICAL);
+        card.setPadding(dp(22), dp(16), dp(22), dp(16));
+        prayerShape = new GradientDrawable();
+        prayerShape.setCornerRadius(dp(Focus.CARD));
+        card.setBackground(prayerShape);
+        card.setVisibility(View.GONE);
+
+        LinearLayout main = new LinearLayout(this);
+        main.setOrientation(LinearLayout.VERTICAL);
+        prayerLabel = text("SHOLAT BERIKUTNYA", 12, palette.onSurfaceVariant, 760);
+        prayerLabel.setLetterSpacing(0.2f);
+        main.addView(prayerLabel);
+        prayerName = text("", 30, palette.onSurface, 760);
+        prayerName.setSingleLine(true);
+        main.addView(prayerName);
+        prayerWhen = text("", 14, palette.primary, 560);
+        prayerWhen.setSingleLine(true);
+        main.addView(prayerWhen);
+        card.addView(main, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+
+        prayerDivider = new View(this);
+        LinearLayout.LayoutParams dl = new LinearLayout.LayoutParams(dp(1), ViewGroup.LayoutParams.MATCH_PARENT);
+        dl.setMargins(dp(14), dp(4), dp(14), dp(4));
+        card.addView(prayerDivider, dl);
+
+        prayerList = text("", 13, palette.onSurfaceVariant, 500);
+        prayerList.setGravity(Gravity.END);
+        prayerList.setLineSpacing(dp(3), 1f);
+        card.addView(prayerList, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        stylePrayerCard();
+        return card;
+    }
+
+    private void stylePrayerCard() {
+        if (prayerShape == null) return;
+        prayerShape.setColor(withAlpha(palette.container, 0xD9));
+        prayerLabel.setTextColor(palette.onSurfaceVariant);
+        prayerName.setTextColor(palette.onSurface);
+        prayerWhen.setTextColor(palette.primary);
+        prayerList.setTextColor(palette.onSurfaceVariant);
+        prayerDivider.setBackgroundColor(withAlpha(palette.onSurfaceVariant, 0x55));
+    }
+
+    /** Tampilkan jadwal sholat di Beranda saat card Now Playing sedang tidak tampil, dan perbarui isinya. */
+    private void updatePrayerCard() {
+        if (prayerCard == null || nowCard == null) return;
+        boolean show = !showingApps && nowCard.getVisibility() != View.VISIBLE;
+        if (!show) {
+            prayerCard.animate().cancel();
+            prayerCard.setVisibility(View.GONE);
+            return;
+        }
+        Calendar now = Calendar.getInstance();
+        int nowMin = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE);
+        int[] times = PrayerTimes.minutesFor(now);
+        int next = -1;
+        for (int i = 0; i < times.length; i++) {
+            if (times[i] > nowMin) {
+                next = i;
+                break;
+            }
+        }
+        int nextMin;
+        if (next < 0) {   // sesudah Isya: Subuh besok
+            Calendar tomorrow = (Calendar) now.clone();
+            tomorrow.add(Calendar.DAY_OF_MONTH, 1);
+            times = PrayerTimes.minutesFor(tomorrow);
+            next = 0;
+            nextMin = times[0] + 1440;
+        } else {
+            nextMin = times[next];
+        }
+        int left = nextMin - nowMin;
+        String wait = left >= 60 ? (left / 60) + " j " + (left % 60) + " m lagi" : left + " m lagi";
+        prayerName.setText(PrayerTimes.NAMES[next]);
+        prayerWhen.setText(PrayerTimes.format(times[next]) + " · " + wait);
+        StringBuilder others = new StringBuilder();
+        for (int i = 0; i < times.length; i++) {
+            if (i == next) continue;
+            if (others.length() > 0) others.append('\n');
+            others.append(PrayerTimes.NAMES[i]).append("  ").append(PrayerTimes.format(times[i]));
+        }
+        prayerList.setText(others);
+
+        if (prayerCard.getVisibility() != View.VISIBLE) {
+            prayerCard.animate().cancel();
+            prayerCard.setAlpha(0f);
+            prayerCard.setTranslationY(dp(10));
+            prayerCard.setVisibility(View.VISIBLE);
+            prayerCard.animate().alpha(1f).translationY(0).setInterpolator(Motion.DEFAULT_SPATIAL).setDuration(Motion.DEFAULT_SPATIAL_MS).start();
+        }
     }
 
     // ---- Now Playing ----
 
     private View buildNowPlaying() {
-        LinearLayout card = new LinearLayout(this);
+        LinearLayout card = new LinearLayout(this) {
+            @Override public void setVisibility(int visibility) {
+                super.setVisibility(visibility);
+                updatePrayerCard();
+            }
+        };
         card.setGravity(Gravity.CENTER_VERTICAL);
         card.setPadding(dp(12), dp(12), dp(14), dp(12));
         nowShape = new GradientDrawable();
@@ -1058,7 +1177,7 @@ public class HomeActivity extends Activity {
         LinearLayout words = new LinearLayout(this);
         words.setOrientation(LinearLayout.VERTICAL);
         words.setPadding(dp(14), 0, dp(10), 0);
-        TextView label = text("NOW PLAYING", 12, palette.onSurfaceVariant, 760);
+        TextView label = text("SEDANG DIPUTAR", 12, palette.onSurfaceVariant, 760);
         label.setLetterSpacing(0.2f);
         words.addView(label);
         nowTitle = text("", 16, palette.onSurface, 760);
@@ -1103,6 +1222,7 @@ public class HomeActivity extends Activity {
         nowTitle.setTextColor(palette.onSurface);
         nowArtist.setTextColor(palette.onSurfaceVariant);
         nowProgress.setColors(palette.primary, withAlpha(palette.onSurfaceVariant, 0x55));
+        stylePrayerCard();
     }
 
     private void startNowPlaying() {
